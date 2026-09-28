@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+# Prefer this plugin's collectors, then fall back to stock Omarchy collectors.
+# Never replace a good limits[] with an empty one (stock Codex RPC blips).
+set -euo pipefail
+PLUGIN_BIN="$(cd "$(dirname "$0")" && pwd)"
+USAGE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy/agents/usage"
+OMARCHY_BIN="${OMARCHY_PATH:-/usr/share/omarchy}/bin"
+mkdir -p "$USAGE_DIR"
+
+flags=()
+only=()
+declare -A excluded
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+  --force|--limits-only) flags+=("$1") ;;
+  --except) excluded[$2]=1; shift ;;
+  *) only+=("$1") ;;
+  esac
+  shift
+done
+
+wanted() {
+  local agent="$1"
+  [[ -n ${excluded[$agent]:-} ]] && return 1
+  (( ${#only[@]} == 0 )) && return 0
+  local candidate
+  for candidate in "${only[@]}"; do
+    [[ $candidate == "$agent" ]] && return 0
+  done
+  return 1
+}
+
+# If the new record has no limits but the on-disk file still has some, keep them.
+merge_limits() {
+  local agent="$1" record="$2"
+  local path="$USAGE_DIR/$agent.json"
+  [[ -f $path ]] || { printf '%s' "$record"; return 0; }
+  printf '%s' "$record" | jq -c --slurpfile prev "$path" '
+    if ((.limits | type) == "array") and ((.limits | length) > 0) then
+      .
+    elif ($prev[0].limits | type) == "array" and ($prev[0].limits | length) > 0 then
+      .limits = $prev[0].limits
+      | .limitsHeld = true
+      | (if (.tierLabel // "") == "" and (($prev[0].tierLabel // "") != "")
+         then .tierLabel = $prev[0].tierLabel else . end)
+      | (if (.usageStatusText // "") | test("limit"; "i")
+         then .usageStatusText = "" else . end)
+    else
+      .
+    end
+  '
+}
+
+collect() {
+  local collector="$1" agent="$2"
+  local record tmp merged
+  if ! record=$("$collector" "${flags[@]}") || [[ -z $record ]] || ! jq -e . >/dev/null 2>&1 <<<"$record"; then
+    echo "usage-update: $agent collector failed" >&2
+    return 1
+  fi
+  if ! merged=$(merge_limits "$agent" "$record"); then
+    merged=$record
+  fi
+  tmp=$(mktemp "$USAGE_DIR/.$agent.XXXXXX")
+  printf '%s\n' "$merged" >"$tmp"
+  mv "$tmp" "$USAGE_DIR/$agent.json"
+}
+
+declare -A seen
+pids=()
+
+# Plugin overrides first (e.g. fixed codex).
+for collector in "$PLUGIN_BIN"/omarchy-agent-usage-*; do
+  [[ -x $collector ]] || continue
+  agent="${collector##*/omarchy-agent-usage-}"
+  [[ $agent == update ]] && continue
+  wanted "$agent" || continue
+  seen[$agent]=1
+  collect "$collector" "$agent" &
+  pids+=($!)
+done
+
+# Stock collectors for anything not overridden.
+for collector in "$OMARCHY_BIN"/omarchy-agent-usage-*; do
+  [[ -x $collector ]] || continue
+  agent="${collector##*/omarchy-agent-usage-}"
+  [[ $agent == update ]] && continue
+  [[ -n ${seen[$agent]:-} ]] && continue
+  wanted "$agent" || continue
+  collect "$collector" "$agent" &
+  pids+=($!)
+done
+
+status=0
+for pid in "${pids[@]}"; do
+  wait "$pid" || status=1
+done
+exit $status

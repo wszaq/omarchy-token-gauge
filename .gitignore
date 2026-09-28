@@ -1,0 +1,12 @@
+assets/_capture*
+assets/gauge-detail.png
+assets/preview-mockup.png
+assets/screenshot-*-20*.png
+docs/aurora-ai-vault-journal.md
+.DS_Store
+*.egg-info/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+tmp/
+.venv/

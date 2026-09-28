@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "id": "wszaq.token-gauge",
+  "name": "Agent Tokens",
+  "version": "0.1.0",
+  "author": "wszaq",
+  "license": "MIT",
+  "description": "Fuel-tank bar/desktop dials for AI agent token remaining (% left), per-provider limits, and a shared Today / 7d / Avg/d footer.",
+  "kinds": ["bar-widget"],
+  "activation": "on-demand",
+  "entryPoints": {
+    "barWidget": "TokenGauge.qml"
+  },
+  "barWidget": {
+    "displayName": "Agent Tokens",
+    "description": "JustGage-style remaining-% dials for Claude, Codex, Cursor, Fireworks (and other usage records) with reset countdowns.",
+    "category": "AI",
+    "aliases": ["tokens", "token-gauge", "agent-tokens", "usage"],
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "refreshIntervalSec": 300,
+      "providers": {
+        "claude": { "enabled": true },
+        "codex": { "enabled": true },
+        "cursor": { "enabled": true },
+        "fireworks": { "enabled": true }
+      }
+    },
+    "schema": [
+      {
+        "key": "refreshIntervalSec",
+        "type": "integer",
+        "label": "Refresh interval (seconds)",
+        "min": 30,
+        "max": 3600,
+        "step": 30,
+        "defaultValue": 300
+      }
+    ]
+  }
+}
